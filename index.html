@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Retail Pro v3 | Система управління</title>
+    <title>Retail Core v3.5 | Pro Manager</title>
     
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -15,237 +15,339 @@
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
 
     <style>
-        body { font-family: 'Manrope', sans-serif; background-color: #f8fafc; }
+        body { font-family: 'Manrope', sans-serif; background-color: #f8fafc; color: #1e293b; }
         .mono { font-family: 'JetBrains Mono', monospace; }
-        .card-shadow { box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); }
-        .active-tab { background: #f97316; color: white; box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3); }
-        input, select { border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; outline: none; transition: 0.3s; width: 100%; }
-        input:focus { border-color: #f97316; ring: 3px solid #ffedd5; }
+        .glass-card { background: white; border: 1px solid #e2e8f0; border-radius: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02); }
+        .active-link { background: #f97316; color: white; box-shadow: 0 10px 15px -3px rgba(249, 115, 22, 0.2); }
+        input, select { border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 10px 14px; outline: none; transition: 0.2s; background: #fff; width: 100%; }
+        input:focus { border-color: #f97316; box-shadow: 0 0 0 4px #ffedd5; }
+        .custom-table tr:hover { background-color: #f8fafc; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useMemo } = React;
         const { 
             LayoutDashboard, Package, Truck, ShoppingCart, 
-            Plus, Trash2, Download, Search, AlertCircle, TrendingUp
+            Plus, Trash2, Download, Search, AlertCircle, TrendingUp, Filter, MoreVertical
         } = lucide;
 
-        // --- ДЕМО ДАНІ (якщо Firebase не підключено) ---
-        const initialSuppliers = [{ id: '1', name: 'Global Snacks LLC', contact: 'Олексій', tel: '+380501112233' }];
-        const initialInventory = [{ id: '1', name: 'Latiao Spicy Classic', cat: 'Снеки', qty: 3, buy: 45, sell: 75, sup: 'Global Snacks' }];
+        // --- ДОПОМІЖНІ ФУНКЦІЇ ДЛЯ ЗБЕРЕЖЕННЯ ---
+        const getStoredData = (key, initial) => {
+            const saved = localStorage.getItem(key);
+            return saved ? JSON.parse(saved) : initial;
+        };
 
         const App = () => {
             const [view, setView] = useState('dashboard');
-            const [inventory, setInventory] = useState(initialInventory);
-            const [purchases, setPurchases] = useState([]);
-            const [suppliers, setSuppliers] = useState(initialSuppliers);
+            
+            // Стан даних
+            const [inventory, setInventory] = useState(() => getStoredData('retail_inventory', []));
+            const [purchases, setPurchases] = useState(() => getStoredData('retail_purchases', []));
+            const [suppliers, setSuppliers] = useState(() => getStoredData('retail_suppliers', [
+                { id: '1', name: 'Основний Постачальник', contact: 'Менеджер', tel: '+380' }
+            ]));
 
-            // Функція додавання закупки
-            const addPurchase = (e) => {
+            // Автозбереження в LocalStorage
+            useEffect(() => {
+                localStorage.setItem('retail_inventory', JSON.stringify(inventory));
+                localStorage.setItem('retail_purchases', JSON.stringify(purchases));
+                localStorage.setItem('retail_suppliers', JSON.stringify(suppliers));
+            }, [inventory, purchases, suppliers]);
+
+            // ЛОГІКА: Додавання закупки
+            const handleAddPurchase = (e) => {
                 e.preventDefault();
                 const f = e.target;
-                const newP = {
+                const qty = Number(f.qty.value);
+                const buyPrice = Number(f.price.value);
+                const name = f.name.value;
+
+                const newPurchase = {
                     id: Date.now().toString(),
-                    name: f.name.value,
+                    name,
                     cat: f.cat.value,
-                    qty: Number(f.qty.value),
-                    buy: Number(f.buy.value),
-                    total: Number(f.qty.value) * Number(f.buy.value),
+                    qty,
+                    price: buyPrice,
+                    total: qty * buyPrice,
                     sup: f.sup.value,
                     date: new Date().toLocaleDateString('uk-UA')
                 };
 
-                setPurchases([newP, ...purchases]);
-                
-                // Оновлення матриці
-                const existing = inventory.find(i => i.name === newP.name);
-                if (existing) {
-                    setInventory(inventory.map(i => i.name === newP.name 
-                        ? { ...i, qty: i.qty + newP.qty, buy: newP.buy } 
-                        : i
-                    ));
-                } else {
-                    setInventory([...inventory, {
+                setPurchases([newPurchase, ...purchases]);
+
+                // Оновлення асортименту
+                setInventory(prev => {
+                    const exists = prev.find(i => i.name === name);
+                    if (exists) {
+                        return prev.map(i => i.name === name 
+                            ? { ...i, qty: i.qty + qty, buy: buyPrice } 
+                            : i
+                        );
+                    }
+                    return [...prev, {
                         id: Date.now().toString(),
-                        name: newP.name, cat: newP.cat, qty: newP.qty,
-                        buy: newP.buy, sell: newP.buy * 1.5, sup: newP.sup
-                    }]);
-                }
+                        name,
+                        cat: f.cat.value,
+                        qty,
+                        buy: buyPrice,
+                        sell: buyPrice * 1.3,
+                        sup: f.sup.value
+                    }];
+                });
                 f.reset();
             };
 
-            // Компонент Таблиці
-            const Table = ({ data, columns, type }) => (
-                <div className="overflow-x-auto bg-white rounded-3xl p-4 card-shadow border border-slate-100">
-                    <table className="w-full text-left border-collapse">
-                        <thead>
-                            <tr className="text-slate-400 text-xs uppercase font-black border-b border-slate-50">
-                                {columns.map(c => <th key={c} className="p-4">{c}</th>)}
-                                <th className="p-4">Дії</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50 text-sm">
-                            {data.map(item => (
-                                <tr key={item.id} className="hover:bg-slate-50 transition">
-                                    {Object.values(item).filter((_, i) => i !== 0).map((val, i) => (
-                                        <td key={i} className="p-4 font-semibold text-slate-700">
-                                            {typeof val === 'number' && i > 1 ? `${val} ₴` : val}
-                                        </td>
+            // --- КОМПОНЕНТИ СТОРІНОК ---
+
+            const Dashboard = () => {
+                const totalStockVal = inventory.reduce((acc, i) => acc + (i.qty * i.buy), 0);
+                const lowStockCount = inventory.filter(i => i.qty < 10).length;
+                
+                return (
+                    <div className="space-y-6 animate-in fade-in duration-500">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="glass-card p-6 bg-gradient-to-br from-orange-500 to-orange-600 text-white border-none">
+                                <p className="text-orange-100 text-sm font-bold uppercase tracking-wider">Вартість складу</p>
+                                <h2 className="text-3xl font-black mt-2 mono">{totalStockVal.toLocaleString()} ₴</h2>
+                            </div>
+                            <div className="glass-card p-6 border-l-4 border-l-blue-500">
+                                <p className="text-slate-400 text-sm font-bold uppercase tracking-wider">Всього товарів (SKU)</p>
+                                <h2 className="text-3xl font-black mt-2 text-slate-800">{inventory.length}</h2>
+                            </div>
+                            <div className="glass-card p-6 border-l-4 border-l-red-500">
+                                <p className="text-slate-400 text-sm font-bold uppercase tracking-wider">Мало на складі</p>
+                                <h2 className="text-3xl font-black mt-2 text-red-500">{lowStockCount}</h2>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div className="glass-card p-6">
+                                <h3 className="font-bold mb-4 flex items-center gap-2"><TrendingUp size={18} className="text-orange-500"/> Останні закупки</h3>
+                                <div className="space-y-3">
+                                    {purchases.slice(0, 5).map(p => (
+                                        <div key={p.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                                            <div>
+                                                <p className="font-bold text-sm text-slate-700">{p.name}</p>
+                                                <p className="text-[10px] uppercase text-slate-400 font-bold">{p.date}</p>
+                                            </div>
+                                            <p className="mono font-bold text-orange-600">-{p.total} ₴</p>
+                                        </div>
                                     ))}
-                                    <td className="p-4">
-                                        <button onClick={() => {
-                                            if(type === 'inv') setInventory(inventory.filter(i => i.id !== item.id))
-                                            if(type === 'sup') setSuppliers(suppliers.filter(i => i.id !== item.id))
-                                        }} className="text-red-400 hover:text-red-600"><Trash2 size={18}/></button>
-                                    </td>
+                                    {purchases.length === 0 && <p className="text-slate-400 text-center py-10 italic">Немає даних</p>}
+                                </div>
+                            </div>
+                            <div className="glass-card p-6">
+                                <h3 className="font-bold mb-4 flex items-center gap-2"><AlertCircle size={18} className="text-red-500"/> Потрібно закупити</h3>
+                                <div className="space-y-3">
+                                    {inventory.filter(i => i.qty < 10).map(i => (
+                                        <div key={i.id} className="flex justify-between items-center p-3 border border-red-50 rounded-xl bg-red-50/30">
+                                            <p className="font-bold text-sm text-slate-700">{i.name}</p>
+                                            <span className="bg-red-500 text-white text-[10px] px-2 py-1 rounded-full font-bold">{i.qty} шт</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const InventoryView = () => (
+                <div className="glass-card overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                        <h2 className="text-xl font-extrabold">Матриця асортименту</h2>
+                        <button onClick={() => {
+                            const csv = "Товар,Категорія,Залишок,Ціна закупки,Ціна продажу\n" + inventory.map(i => `${i.name},${i.cat},${i.qty},${i.buy},${i.sell}`).join("\n");
+                            const blob = new Blob([csv], { type: 'text/csv' });
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url; a.download = 'inventory.csv'; a.click();
+                        }} className="bg-slate-100 hover:bg-slate-200 p-2 rounded-lg text-slate-600 transition"><Download size={20}/></button>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full custom-table text-left">
+                            <thead className="bg-slate-50 text-slate-400 text-[10px] uppercase font-black">
+                                <tr>
+                                    <th className="p-4">Назва товару</th>
+                                    <th className="p-4 text-center">Склад</th>
+                                    <th className="p-4">Закупка</th>
+                                    <th className="p-4">Продаж</th>
+                                    <th className="p-4 text-orange-500">Маржа %</th>
+                                    <th className="p-4"></th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {inventory.map(item => (
+                                    <tr key={item.id}>
+                                        <td className="p-4">
+                                            <p className="font-bold text-slate-800">{item.name}</p>
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase">{item.cat}</p>
+                                        </td>
+                                        <td className="p-4 text-center">
+                                            <span className={`px-3 py-1 rounded-full font-bold mono text-xs ${item.qty < 10 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                                                {item.qty}
+                                            </span>
+                                        </td>
+                                        <td className="p-4 mono text-sm">{item.buy} ₴</td>
+                                        <td className="p-4 mono text-sm font-bold text-blue-600">{item.sell} ₴</td>
+                                        <td className="p-4 text-orange-500 font-black italic">
+                                            {Math.round(((item.sell - item.buy)/item.sell)*100)}%
+                                        </td>
+                                        <td className="p-4">
+                                            <button onClick={() => setInventory(inventory.filter(i => i.id !== item.id))} className="text-slate-300 hover:text-red-500 transition"><Trash2 size={16}/></button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             );
 
+            const PurchasesView = () => (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4 duration-500">
+                    <div className="lg:col-span-1 space-y-6">
+                        <div className="glass-card p-6">
+                            <h3 className="font-black mb-6 uppercase tracking-tighter text-lg italic">Нова операція</h3>
+                            <form onSubmit={handleAddPurchase} className="space-y-4">
+                                <label className="block">
+                                    <span className="text-[10px] font-black uppercase text-slate-400 ml-1">Товар</span>
+                                    <input name="name" required placeholder="Назва товару" />
+                                </label>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <label>
+                                        <span className="text-[10px] font-black uppercase text-slate-400 ml-1">Категорія</span>
+                                        <select name="cat">
+                                            <option>Снеки</option>
+                                            <option>Напої</option>
+                                            <option>Бакалія</option>
+                                            <option>Інше</option>
+                                        </select>
+                                    </label>
+                                    <label>
+                                        <span className="text-[10px] font-black uppercase text-slate-400 ml-1">Постачальник</span>
+                                        <select name="sup">
+                                            {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                        </select>
+                                    </label>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <label>
+                                        <span className="text-[10px] font-black uppercase text-slate-400 ml-1">К-сть</span>
+                                        <input name="qty" type="number" required />
+                                    </label>
+                                    <label>
+                                        <span className="text-[10px] font-black uppercase text-slate-400 ml-1">Ціна закуп.</span>
+                                        <input name="price" type="number" required />
+                                    </label>
+                                </div>
+                                <button type="submit" className="w-full bg-orange-500 text-white font-black py-4 rounded-xl hover:bg-orange-600 transition shadow-lg shadow-orange-100 uppercase tracking-widest text-xs">Додати закупку</button>
+                            </form>
+                        </div>
+                    </div>
+                    <div className="lg:col-span-2 glass-card p-6">
+                        <h3 className="font-bold mb-6 italic">Історія закупівель</h3>
+                        <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+                            {purchases.map(p => (
+                                <div key={p.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-orange-200 transition">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-orange-500 shadow-sm"><ShoppingCart size={18}/></div>
+                                        <div>
+                                            <p className="font-bold text-slate-800">{p.name}</p>
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{p.sup} • {p.date}</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="mono font-black text-slate-800">{p.total} ₴</p>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase">{p.qty} шт x {p.price} ₴</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const SuppliersView = () => {
+                const addS = (e) => {
+                    e.preventDefault();
+                    const f = e.target;
+                    setSuppliers([...suppliers, { id: Date.now().toString(), name: f.name.value, contact: f.contact.value, tel: f.tel.value }]);
+                    f.reset();
+                };
+                return (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 animate-in fade-in duration-500">
+                        <div className="md:col-span-1 glass-card p-6 h-fit">
+                            <h3 className="font-bold mb-6">Додати партнера</h3>
+                            <form onSubmit={addS} className="space-y-4">
+                                <input name="name" placeholder="Назва компанії" required />
+                                <input name="contact" placeholder="Менеджер" />
+                                <input name="tel" placeholder="Телефон" />
+                                <button className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl uppercase text-xs tracking-widest">Зберегти</button>
+                            </form>
+                        </div>
+                        <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {suppliers.map(s => (
+                                <div key={s.id} className="glass-card p-6 flex justify-between items-start">
+                                    <div>
+                                        <h4 className="font-black text-slate-800 uppercase tracking-tight">{s.name}</h4>
+                                        <p className="text-sm text-slate-500 font-semibold mt-1">{s.contact}</p>
+                                        <p className="text-xs text-slate-400 mono mt-2">{s.tel}</p>
+                                    </div>
+                                    <button onClick={() => setSuppliers(suppliers.filter(i => i.id !== s.id))} className="text-slate-200 hover:text-red-500 transition"><Trash2 size={18}/></button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            };
+
             return (
-                <div className="min-h-screen flex bg-[#f8fafc]">
+                <div className="flex flex-col md:flex-row min-h-screen">
                     {/* Sidebar */}
-                    <nav className="w-20 md:w-64 bg-white border-r border-slate-200 flex flex-col p-4 md:p-6 fixed h-full">
-                        <div className="flex items-center gap-3 mb-12 overflow-hidden">
-                            <div className="bg-orange-500 p-2 rounded-xl text-white shrink-0"><TrendingUp /></div>
-                            <h1 className="text-xl font-black text-slate-800 hidden md:block italic">RETAIL MANAGER</h1>
+                    <aside className="w-full md:w-72 bg-white border-r border-slate-200 flex flex-col fixed md:sticky top-0 h-fit md:h-screen z-20">
+                        <div className="p-8 flex items-center gap-3">
+                            <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center text-white shadow-xl shadow-orange-200 italic font-black text-xl">R</div>
+                            <h1 className="text-xl font-black text-slate-800 tracking-tighter uppercase italic">Retail<span className="text-orange-500">Core</span></h1>
                         </div>
                         
-                        <div className="space-y-4 flex-grow">
+                        <nav className="flex-grow px-4 space-y-2 pb-8">
                             {[
-                                { id: 'dashboard', icon: <LayoutDashboard />, label: 'Дашборд' },
-                                { id: 'purchases', icon: <ShoppingCart />, label: 'Закупки' },
-                                { id: 'inventory', icon: <Package />, label: 'Матриця' },
-                                { id: 'suppliers', icon: <Truck />, label: 'Партнери' },
+                                { id: 'dashboard', icon: <LayoutDashboard size={20}/>, label: 'Дашборд' },
+                                { id: 'purchases', icon: <ShoppingCart size={20}/>, label: 'Закупки' },
+                                { id: 'inventory', icon: <Package size={20}/>, label: 'Матриця' },
+                                { id: 'suppliers', icon: <Truck size={20}/>, label: 'Постачальники' },
                             ].map(item => (
                                 <button 
                                     key={item.id}
                                     onClick={() => setView(item.id)}
-                                    className={`w-full flex items-center gap-4 p-4 rounded-2xl transition font-bold ${view === item.id ? 'active-tab' : 'text-slate-400 hover:bg-slate-50'}`}
+                                    className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${view === item.id ? 'active-link' : 'text-slate-400 hover:bg-slate-50'}`}
                                 >
-                                    {item.icon} <span className="hidden md:block">{item.label}</span>
+                                    {item.icon} {item.label}
                                 </button>
                             ))}
-                        </div>
-                    </nav>
+                        </nav>
+                    </aside>
 
-                    {/* Main Content */}
-                    <main className="ml-20 md:ml-64 flex-grow p-6 md:p-12">
-                        {/* Dashboard View */}
-                        {view === 'dashboard' && (
-                            <div className="animate-in fade-in duration-500">
-                                <h2 className="text-3xl font-black text-slate-800 mb-8 tracking-tight">Статистика магазину</h2>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
-                                    <div className="bg-white p-8 rounded-[32px] card-shadow border border-orange-100">
-                                        <p className="text-slate-400 font-bold uppercase text-xs mb-2">Товарів в наявності</p>
-                                        <h3 className="text-4xl font-black text-slate-800">{inventory.length}</h3>
-                                    </div>
-                                    <div className="bg-white p-8 rounded-[32px] card-shadow border border-blue-100">
-                                        <p className="text-slate-400 font-bold uppercase text-xs mb-2">Оцінка складу</p>
-                                        <h3 className="text-4xl font-black text-blue-600 mono">{inventory.reduce((a,b)=>a+(b.qty*b.buy),0)} ₴</h3>
-                                    </div>
-                                    <div className="bg-orange-500 p-8 rounded-[32px] text-white card-shadow shadow-orange-200">
-                                        <p className="opacity-80 font-bold uppercase text-xs mb-2">Критичний залишок</p>
-                                        <h3 className="text-4xl font-black">{inventory.filter(i=>i.qty < 5).length}</h3>
-                                    </div>
-                                </div>
-                                <div className="bg-white p-6 rounded-[32px] card-shadow h-64 flex items-center justify-center border border-slate-50">
-                                    <p className="text-slate-300 font-bold italic">Графік закупок з'явиться після додавання операцій...</p>
+                    {/* Content */}
+                    <main className="flex-grow p-4 md:p-10 lg:p-16">
+                        <header className="flex justify-between items-center mb-12">
+                            <h2 className="text-3xl font-black text-slate-800 capitalize italic tracking-tight">{view}</h2>
+                            <div className="flex items-center gap-4">
+                                <span className="text-xs font-black text-slate-400 uppercase tracking-widest">{new Date().toLocaleDateString('uk-UA', { day: 'numeric', month: 'long' })}</span>
+                                <div className="w-10 h-10 rounded-full bg-slate-200 border-2 border-white shadow-sm overflow-hidden">
+                                    <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Lucky" alt="avatar" />
                                 </div>
                             </div>
-                        )}
+                        </header>
 
-                        {/* Purchases View */}
-                        {view === 'purchases' && (
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-10 animate-in slide-in-from-bottom-4 duration-500">
-                                <div className="lg:col-span-1">
-                                    <div className="bg-white p-8 rounded-[32px] card-shadow sticky top-10 border border-slate-50">
-                                        <h3 className="text-xl font-black mb-6">Нова поставка</h3>
-                                        <form onSubmit={addPurchase} className="space-y-4">
-                                            <input name="name" placeholder="Назва товару" required />
-                                            <select name="cat" required>
-                                                <option value="Снеки">Снеки</option>
-                                                <option value="Напої">Напої</option>
-                                                <option value="Бакалія">Бакалія</option>
-                                            </select>
-                                            <select name="sup" required>
-                                                {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                            </select>
-                                            <div className="flex gap-4">
-                                                <input name="qty" type="number" placeholder="К-сть" required />
-                                                <input name="buy" type="number" placeholder="Ціна" required />
-                                            </div>
-                                            <button className="w-full bg-slate-900 text-white p-4 rounded-2xl font-black hover:bg-orange-500 transition-colors shadow-xl">ЗАВЕРШИТИ</button>
-                                        </form>
-                                    </div>
-                                </div>
-                                <div className="lg:col-span-2">
-                                    <h3 className="text-xl font-black mb-6">Журнал закупок</h3>
-                                    <div className="space-y-4">
-                                        {purchases.map(p => (
-                                            <div key={p.id} className="bg-white p-6 rounded-3xl card-shadow flex justify-between items-center border border-slate-50 hover:border-orange-200 transition">
-                                                <div>
-                                                    <p className="font-black text-slate-800">{p.name}</p>
-                                                    <p className="text-xs text-slate-400 uppercase font-bold">{p.date} • {p.sup}</p>
-                                                </div>
-                                                <p className="mono font-black text-orange-500">-{p.total} ₴</p>
-                                            </div>
-                                        ))}
-                                        {purchases.length === 0 && <p className="text-slate-400 italic text-center py-20">Історія порожня</p>}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Inventory View */}
-                        {view === 'inventory' && (
-                            <div className="animate-in fade-in duration-500">
-                                <div className="flex justify-between items-center mb-8">
-                                    <h2 className="text-3xl font-black text-slate-800 tracking-tight">Матриця асортименту</h2>
-                                    <button onClick={() => alert('CSV експортовано!')} className="flex items-center gap-2 bg-white px-6 py-3 rounded-2xl font-bold text-slate-600 border border-slate-100 card-shadow hover:bg-slate-50 transition">
-                                        <Download size={18}/> Експорт CSV
-                                    </button>
-                                </div>
-                                <Table 
-                                    data={inventory} 
-                                    columns={['Товар', 'Категорія', 'Склад (шт)', 'Закупка', 'Продаж', 'Постачальник']} 
-                                    type="inv"
-                                />
-                            </div>
-                        )}
-
-                        {/* Suppliers View */}
-                        {view === 'suppliers' && (
-                            <div className="animate-in fade-in duration-500">
-                                <h2 className="text-3xl font-black text-slate-800 mb-8 tracking-tight">Постачальники</h2>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                    {suppliers.map(s => (
-                                        <div key={s.id} className="bg-white p-8 rounded-[32px] card-shadow border border-slate-50 relative group">
-                                            <h4 className="text-xl font-black text-slate-800 mb-2 uppercase italic">{s.name}</h4>
-                                            <p className="text-slate-500 font-semibold mb-4">{s.contact}</p>
-                                            <div className="bg-slate-50 p-3 rounded-xl font-mono text-sm text-slate-600">{s.tel}</div>
-                                            <button onClick={() => setSuppliers(suppliers.filter(i=>i.id !== s.id))} className="absolute top-6 right-6 text-slate-200 hover:text-red-500 transition opacity-0 group-hover:opacity-100"><Trash2 size={20}/></button>
-                                        </div>
-                                    ))}
-                                    <button 
-                                        onClick={() => {
-                                            const name = prompt('Назва компанії:');
-                                            if(name) setSuppliers([...suppliers, {id: Date.now().toString(), name, contact: 'Контактна особа', tel: '+380...'}])
-                                        }}
-                                        className="border-4 border-dashed border-slate-200 rounded-[32px] flex flex-col items-center justify-center p-8 text-slate-300 hover:border-orange-300 hover:text-orange-300 transition"
-                                    >
-                                        <Plus size={40} strokeWidth={3}/>
-                                        <span className="font-black mt-2">ДОДАТИ ПАРТНЕРА</span>
-                                    </button>
-                                </div>
-                            </div>
-                        )}
+                        {view === 'dashboard' && <Dashboard />}
+                        {view === 'inventory' && <InventoryView />}
+                        {view === 'purchases' && <PurchasesView />}
+                        {view === 'suppliers' && <SuppliersView />}
                     </main>
                 </div>
             );
