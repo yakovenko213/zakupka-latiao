@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retail Manager | Система обліку</title>
+    
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/recharts/umd/Recharts.js"></script>
+    
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Manrope', sans-serif; background-color: #f8fafc; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .glass { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(10px); }
+        .sidebar-active { border-right: 4px solid #f97316; background: #fff7ed; color: #f97316; }
+        input, select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; outline: none; transition: 0.2s; }
+        input:focus { border-color: #f97316; ring: 2px solid #ffedd5; }
+        .card { background: white; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+        const { 
+            LayoutDashboard, Package, Truck, ShoppingCart, 
+            Settings, Plus, Trash2, Edit3, TrendingUp, 
+            Search, Filter, ChevronRight, AlertCircle 
+        } = lucide;
+
+        // --- Firebase Config ---
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+        
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // --- Допоміжні компоненти ---
+        const Card = ({ children, title, extra }) => (
+            <div className="card p-6 mb-6">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-lg font-bold text-slate-800">{title}</h3>
+                    {extra}
+                </div>
+                {children}
+            </div>
+        );
+
+        // --- Основний Додаток ---
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [purchases, setPurchases] = useState([]);
+            const [inventory, setInventory] = useState([]);
+            const [suppliers, setSuppliers] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            // Fetch Data
+            useEffect(() => {
+                const fetchData = async () => {
+                    db.collection('purchases').onSnapshot(snap => {
+                        setPurchases(snap.docs.map(doc => ({id: doc.id, ...doc.data()})));
+                    });
+                    db.collection('inventory').onSnapshot(snap => {
+                        setInventory(snap.docs.map(doc => ({id: doc.id, ...doc.data()})));
+                    });
+                    db.collection('suppliers').onSnapshot(snap => {
+                        setSuppliers(snap.docs.map(doc => ({id: doc.id, ...doc.data()})));
+                    });
+                    setLoading(false);
+                };
+                fetchData();
+            }, []);
+
+            // --- Логіка додавання закупки ---
+            const addPurchase = async (e) => {
+                e.preventDefault();
+                const form = e.target;
+                const data = {
+                    product: form.product.value,
+                    category: form.category.value,
+                    supplier: form.supplier.value,
+                    qty: Number(form.qty.value),
+                    price: Number(form.price.value),
+                    total: Number(form.qty.value) * Number(form.price.value),
+                    date: form.date.value || new Date().toISOString().split('T')[0]
+                };
+
+                // 1. Додаємо в закупки
+                await db.collection('purchases').add(data);
+
+                // 2. Оновлюємо або створюємо в матриці (Inventory)
+                const invRef = db.collection('inventory').where('product', '==', data.product);
+                const invSnap = await invRef.get();
+
+                if (invSnap.empty) {
+                    await db.collection('inventory').add({
+                        product: data.product,
+                        category: data.category,
+                        qty: data.qty,
+                        costPrice: data.price,
+                        salePrice: data.price * 1.3, // Дефолтна націнка 30%
+                        supplier: data.supplier
+                    });
+                } else {
+                    const doc = invSnap.docs[0];
+                    await db.collection('inventory').doc(doc.id).update({
+                        qty: doc.data().qty + data.qty,
+                        costPrice: data.price,
+                        supplier: data.supplier
+                    });
+                }
+                form.reset();
+            };
+
+            // --- Компоненти сторінок ---
+            
+            const Dashboard = () => {
+                const totalSpend = purchases.reduce((sum, p) => sum + p.total, 0);
+                const lowStock = inventory.filter(i => i.qty < 5).length;
+                
+                return (
+                    <div className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="card p-6 bg-orange-500 text-white">
+                                <p className="opacity-80">Загальні витрати</p>
+                                <h2 className="text-3xl font-extrabold mono">{totalSpend.toLocaleString()} ₴</h2>
+                            </div>
+                            <div className="card p-6 bg-blue-600 text-white">
+                                <p className="opacity-80">Товарів в матриці</p>
+                                <h2 className="text-3xl font-extrabold mono">{inventory.length} SKU</h2>
+                            </div>
+                            <div className="card p-6 bg-white border-2 border-orange-100">
+                                <p className="text-slate-500 font-semibold">Критичний залишок</p>
+                                <h2 className="text-3xl font-extrabold text-orange-600 mono">{lowStock}</h2>
+                            </div>
+                        </div>
+
+                        <Card title="Аналітика закупок (останні записи)">
+                            <div className="h-64 w-full">
+                                <Recharts.ResponsiveContainer>
+                                    <Recharts.BarChart data={purchases.slice(-7)}>
+                                        <Recharts.CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                        <Recharts.XAxis dataKey="product" />
+                                        <Recharts.YAxis />
+                                        <Recharts.Tooltip />
+                                        <Recharts.Bar dataKey="total" fill="#f97316" radius={[4, 4, 0, 0]} />
+                                    </Recharts.BarChart>
+                                </Recharts.ResponsiveContainer>
+                            </div>
+                        </Card>
+                    </div>
+                );
+            };
+
+            const InventoryTable = () => (
+                <Card title="Матриця асортименту" extra={<span className="text-sm text-slate-400">Всього: {inventory.length}</span>}>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50 text-slate-500 text-sm uppercase">
+                                <tr>
+                                    <th className="p-4">Товар</th>
+                                    <th className="p-4">Категорія</th>
+                                    <th className="p-4 text-center">Склад</th>
+                                    <th className="p-4">Закупка</th>
+                                    <th className="p-4">Продаж</th>
+                                    <th className="p-4 text-orange-600">Маржа</th>
+                                    <th className="p-4">Дії</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {inventory.map(item => (
+                                    <tr key={item.id} className="hover:bg-slate-50 transition">
+                                        <td className="p-4 font-bold text-slate-700">{item.product}</td>
+                                        <td className="p-4"><span className="px-2 py-1 bg-slate-100 rounded text-xs">{item.category}</span></td>
+                                        <td className="p-4 text-center">
+                                            <span className={`font-mono font-bold ${item.qty < 5 ? 'text-red-500' : 'text-slate-600'}`}>
+                                                {item.qty}
+                                            </span>
+                                        </td>
+                                        <td className="p-4 mono">{item.costPrice} ₴</td>
+                                        <td className="p-4 mono font-bold text-blue-600">{item.salePrice} ₴</td>
+                                        <td className="p-4 text-orange-600 font-bold italic">
+                                            {Math.round(((item.salePrice - item.costPrice) / item.salePrice) * 100)}%
+                                        </td>
+                                        <td className="p-4">
+                                            <button onClick={() => db.collection('inventory').doc(item.id).delete()} className="text-slate-300 hover:text-red-500 transition">
+                                                <Trash2 size={18} />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </Card>
+            );
+
+            const PurchasesPage = () => (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-1">
+                        <Card title="Нова закупка">
+                            <form onSubmit={addPurchase} className="flex flex-col gap-4">
+                                <input name="product" placeholder="Назва товару" required />
+                                <select name="category" required>
+                                    <option value="">Оберіть категорію</option>
+                                    <option value="Електроніка">Електроніка</option>
+                                    <option value="Одяг">Одяг</option>
+                                    <option value="Дім">Дім</option>
+                                    <option value="Продукти">Продукти</option>
+                                </select>
+                                <select name="supplier" required>
+                                    <option value="">Оберіть постачальника</option>
+                                    {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                </select>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <input name="qty" type="number" placeholder="К-сть" required />
+                                    <input name="price" type="number" placeholder="Ціна за од." required />
+                                </div>
+                                <input name="date" type="date" className="text-slate-500" />
+                                <button type="submit" className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-orange-200">
+                                    Додати закупку
+                                </button>
+                            </form>
+                        </Card>
+                    </div>
+                    <div className="lg:col-span-2">
+                        <Card title="Історія операцій">
+                            <div className="space-y-3">
+                                {purchases.sort((a,b) => new Date(b.date) - new Date(a.date)).map(p => (
+                                    <div key={p.id} className="flex justify-between items-center p-4 border border-slate-100 rounded-xl hover:shadow-sm transition">
+                                        <div>
+                                            <p className="font-bold text-slate-700">{p.product}</p>
+                                            <p className="text-xs text-slate-400">{p.date} • {p.supplier}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="mono font-bold text-slate-800">-{p.total} ₴</p>
+                                            <p className="text-xs text-slate-400">{p.qty} шт. x {p.price} ₴</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </Card>
+                    </div>
+                </div>
+            );
+
+            const SuppliersPage = () => {
+                const addSupplier = async (e) => {
+                    e.preventDefault();
+                    const form = e.target;
+                    await db.collection('suppliers').add({
+                        name: form.name.value,
+                        contact: form.contact.value,
+                        phone: form.phone.value
+                    });
+                    form.reset();
+                };
+
+                return (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div className="lg:col-span-1">
+                            <Card title="Додати постачальника">
+                                <form onSubmit={addSupplier} className="flex flex-col gap-4">
+                                    <input name="name" placeholder="Назва компанії" required />
+                                    <input name="contact" placeholder="Контактна особа" />
+                                    <input name="phone" placeholder="Телефон" />
+                                    <button className="bg-blue-600 text-white py-3 rounded-xl font-bold">Зберегти</button>
+                                </form>
+                            </Card>
+                        </div>
+                        <div className="lg:col-span-2">
+                            <Card title="Список постачальників">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {suppliers.map(s => (
+                                        <div key={s.id} className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                            <div className="flex justify-between">
+                                                <h4 className="font-extrabold text-blue-900">{s.name}</h4>
+                                                <button onClick={() => db.collection('suppliers').doc(s.id).delete()} className="text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>
+                                            </div>
+                                            <p className="text-sm text-slate-600 mt-2 flex items-center gap-2"><Truck size={14}/> {s.contact}</p>
+                                            <p className="text-sm text-slate-500 font-mono">{s.phone}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </Card>
+                        </div>
+                    </div>
+                );
+            };
+
+            // --- Рендер лейауту ---
+            return (
+                <div className="min-h-screen flex flex-col md:flex-row">
+                    {/* Sidebar */}
+                    <aside className="w-full md:w-64 glass border-r border-slate-200 p-6 flex flex-col z-10">
+                        <div className="flex items-center gap-3 mb-10 px-2">
+                            <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-orange-200">
+                                <ShoppingCart size={24} />
+                            </div>
+                            <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">Retail<span className="text-orange-500 text-2xl">.</span></h1>
+                        </div>
+
+                        <nav className="space-y-2 flex-grow">
+                            {[
+                                { id: 'dashboard', label: 'Дашборд', icon: <LayoutDashboard size={20}/> },
+                                { id: 'purchases', label: 'Закупки', icon: <ShoppingCart size={20}/> },
+                                { id: 'inventory', label: 'Матриця', icon: <Package size={20}/> },
+                                { id: 'suppliers', label: 'Постачальники', icon: <Truck size={20}/> },
+                            ].map(item => (
+                                <button
+                                    key={item.id}
+                                    onClick={() => setActiveTab(item.id)}
+                                    className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition font-semibold ${activeTab === item.id ? 'sidebar-active shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}
+                                >
+                                    {item.icon} {item.label}
+                                </button>
+                            ))}
+                        </nav>
+
+                        <div className="pt-6 border-t border-slate-100">
+                            <button className="flex items-center gap-4 px-4 py-3 text-slate-400 hover:text-slate-600 w-full font-medium">
+                                <Settings size={20} /> Налаштування
+                            </button>
+                        </div>
+                    </aside>
+
+                    {/* Main Content */}
+                    <main className="flex-grow p-4 md:p-8 lg:p-12 overflow-y-auto">
+                        <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+                            <div>
+                                <h2 className="text-2xl font-extrabold text-slate-800">
+                                    {activeTab === 'dashboard' && "👋 Вітаю в системі"}
+                                    {activeTab === 'purchases' && "🛒 Управління закупками"}
+                                    {activeTab === 'inventory' && "📦 Асортиментна матриця"}
+                                    {activeTab === 'suppliers' && "🤝 Ваші постачальники"}
+                                </h2>
+                                <p className="text-slate-500 text-sm">Сьогодні {new Date().toLocaleDateString('uk-UA', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+                            </div>
+                            
+                            <div className="flex gap-3">
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-3 text-slate-400" size={18} />
+                                    <input className="pl-10 bg-white border-none shadow-sm" placeholder="Пошук по системі..." />
+                                </div>
+                            </div>
+                        </header>
+
+                        {loading ? (
+                            <div className="flex justify-center items-center h-64 text-orange-500 animate-pulse font-bold">Завантаження даних...</div>
+                        ) : (
+                            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                {activeTab === 'dashboard' && <Dashboard />}
+                                {activeTab === 'purchases' && <PurchasesPage />}
+                                {activeTab === 'inventory' && <InventoryTable />}
+                                {activeTab === 'suppliers' && <SuppliersPage />}
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
